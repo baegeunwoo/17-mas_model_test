@@ -141,3 +141,13 @@ def test_project_subject_hint_from_meeting_titles():
     from work.v3.topic_flow import common_subject
     assert common_subject(['동진 제박기 3호기 사양 협의','제박기 3호기 사양 확정 회의','제박기 3호기 2차 협의'])=='제박기 3호기'
     assert common_subject(['한 건뿐인 회의'])=='' and common_subject(['가 회의','나 회의'])==''
+
+
+def test_project_topic_status():
+    from work.v3.topic_flow import project_flow
+    L=lambda t:[{'id':'L001','text':t}]
+    m=lambda i,d,tid:{'id':i,'title':i,'date':d,'revision':1,'lines':L('x'),'agendas':[{'topic_id':tid,'title':tid,'lines':['L001']}]}
+    e=lambda i,mid,state:{'id':i,'meeting_id':mid,'source_revision':1,'title':'값','category':'사양','before':'','after':state,'business_state':state,'evidence':['L001']}
+    r={t['id']:t['status'] for t in project_flow([m('a','2026-01-01','Tdone'),m('b','2026-02-01','Tdone'),m('c','2026-01-01','Tone'),m('d','2026-01-01','Tgo'),m('f','2026-02-01','Tgo')],
+       [e('1','a','요청'),e('2','b','확정'),e('3','d','요청'),e('4','f','보류')])['topics']}
+    assert r=={'Tdone':'완료','Tone':'최초','Tgo':'진행중'}

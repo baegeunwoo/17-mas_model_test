@@ -50,7 +50,10 @@ def project_flow(meetings,changes):
             for e in s['changes']:latest[(e['category'],e['title'])]={**e,'date':s['date'],'meeting_id':s['meeting_id']}
         changes_in_order=[{**e,'date':s['date'],'meeting_title':s['title'],'meeting_id':s['meeting_id']} for s in steps for e in s['changes']]
         current=changes_in_order[-1] if changes_in_order else None
-        result.append({**t,'first':_ref(steps[0]),'last':_ref(steps[-1]),'meeting_count':len(steps),
+        still_open=[e for e in latest.values() if e['business_state'] in OPEN_STATES]
+        # 완료: every change item's latest record is settled (합의·철회); 최초: one meeting so far.
+        status='완료' if latest and not still_open else '진행중' if len(steps)>1 else '최초'
+        result.append({**t,'status':status,'first':_ref(steps[0]),'last':_ref(steps[-1]),'meeting_count':len(steps),
                        'change_count':len(changes_in_order),
                        'current':{k:current[k] for k in ('title','before','after','business_state','date','meeting_title','meeting_id','evidence')} if current else None,
                        'decided':sum(1 for e in changes_in_order if e['business_state']=='확정'),

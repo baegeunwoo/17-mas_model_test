@@ -4,6 +4,7 @@ import React,{useState,useEffect} from 'react';
 import {ArrowRight,ArrowUpRight,ChevronDown,ChevronRight,FolderOpen,Pencil} from 'lucide-react';
 import {api,Empty,Button,Modal} from './app';
 import {displayChange} from './change_display';
+import {StatusBadge} from './agenda_view';
 
 const day=s=>s?s.replaceAll('-','.'):'날짜 미정';
 const short=s=>s?s.slice(5).replace('-','.'):'미정';
@@ -55,13 +56,12 @@ export function TopicFlowPanel({projects,projectId,meetingCount,person,canRename
   </div>
   {data.pending>0&&<p className="agenda-note">아직 주제를 묶지 않은 회의록 {data.pending}건은 이 표에 빠져 있습니다.</p>}
   <div className="tf-table" role="table" aria-label={(project?.name||'')+' 주제별 안건 흐름'}>
-   <div className="tf-row head" role="row"><span/><span role="columnheader">주제</span><span role="columnheader">처음 나온 회의</span><span role="columnheader">지금 값 (가장 최근 기록)</span><span role="columnheader">미결</span></div>
+   <div className="tf-row head" role="row"><span role="columnheader" className="tf-rev-head">리비전 노트</span><span role="columnheader">주제</span><span role="columnheader">지금 값 (가장 최근 기록)</span><span role="columnheader">미결</span></div>
    {shown.map(t=>{const last=t.open[t.open.length-1];return <div className={'tf-item'+(open[t.id]?' open':'')} key={t.id}>
     <div className="tf-row" role="row" onClick={()=>toggle(t.id)}>
-     <button className="tf-chevron" aria-expanded={!!open[t.id]} aria-label={t.title+(open[t.id]?' 접기':' 펼치기')} onClick={e=>{e.stopPropagation();toggle(t.id)}}>{open[t.id]?<ChevronDown size={17}/>:<ChevronRight size={17}/>}</button>
-     <span role="cell" className="tf-topic"><b>{t.title}</b>
-      <span className="tf-trail" aria-label={'나온 회의 '+t.meeting_count+'건'}>{t.steps.map((s,i)=><i key={s.meeting_id} title={day(s.date)+' '+s.title} className={i===t.steps.length-1?'latest':''}/>)}<small>회의 {t.meeting_count}건{t.meeting_count>1?` · ${short(t.first.date)} → ${short(t.last.date)}`:''}</small></span></span>
-     <span role="cell"><MeetingLink {...t.first} onClick={()=>onOpenMeeting(t.first.meeting_id,t.steps[0].lines.map(l=>l.id))}/></span>
+     <button className={'tf-expand'+(open[t.id]?' open':'')} aria-expanded={!!open[t.id]} title={open[t.id]?'리비전 노트 접기':'회의별 리비전 노트 보기'} aria-label={t.title+' 리비전 노트 '+t.meeting_count+'건 '+(open[t.id]?'접기':'보기')} onClick={e=>{e.stopPropagation();toggle(t.id)}}>{open[t.id]?<ChevronDown size={14}/>:<ChevronRight size={16}/>}</button>
+     <span role="cell" className="tf-topic"><b>{t.title}<StatusBadge status={t.status}/></b>
+      <span className="tf-trail" aria-label={'나온 회의 '+t.meeting_count+'건'}>{t.steps.map((s,i)=><i key={s.meeting_id} title={day(s.date)+' '+s.title} className={i===t.steps.length-1?'latest':''}/>)}<small>{t.meeting_count>1?`${short(t.first.date)} → ${short(t.last.date)}`:short(t.first.date)}</small></span></span>
      <span role="cell"><Value change={t.current}/>{t.current&&<button className="tf-source" title="이 회의록의 원본 열기" onClick={e=>{e.stopPropagation();onOpenMeeting(t.current.meeting_id,t.current.evidence||[])}}>{day(t.current.date)} · <span>{t.current.meeting_title}</span></button>}</span>
      <span role="cell">{last?<span className="tf-open"><span>{last.title}: {last.after}</span>{t.open.length>1&&<small>외 {t.open.length-1}건</small>}</span>:<span className="muted">없음</span>}</span>
     </div>
@@ -69,8 +69,8 @@ export function TopicFlowPanel({projects,projectId,meetingCount,person,canRename
      {t.open.length>0&&<div className="topic-open"><h4>미결 사항 {t.open.length}건</h4><ul>{t.open.map((o,i)=><li key={i}><span className={stateClass(o.business_state)}>{stateLabel(o.business_state)}</span><b>{o.title}</b><span>{o.after}</span><small className="muted">{day(o.date)}</small></li>)}</ul></div>}
      <ol className="topic-steps">{t.steps.map((s,i)=><li key={s.meeting_id}>
       <span className={'timeline-dot '+(i===t.steps.length-1?'latest':'')}/>
-      <div className="topic-step-head"><MeetingLink date={s.date} title={s.title} onClick={()=>onOpenMeeting(s.meeting_id,s.lines.map(l=>l.id))}/>{i===0&&<span className="status">처음 나옴</span>}{i>0&&i===t.steps.length-1&&<span className="status">최근</span>}{s.stale&&<span className="status warning">본문 수정 전 기준</span>}</div>
-      <ul className="agenda-lines">{s.lines.map(l=><li key={l.id}>{l.text}</li>)}</ul>
+      <div className="topic-step-head"><MeetingLink date={s.date} title={s.title} onClick={()=>onOpenMeeting(s.meeting_id,s.lines.map(l=>l.id))}/>{i===0&&<span className="status">최초</span>}{i>0&&i===t.steps.length-1&&<span className="status">최근</span>}{s.stale&&<span className="status warning">본문 수정 전 기준</span>}</div>
+      <ul className="agenda-lines">{s.lines.map(l=><li key={l.id} title={l.text}>{l.text.replace(/^\s*(?:[-·•*▪◦○∙]|\d{1,2}[.)])\s+/,'')}</li>)}</ul>
       {s.changes.length>0&&<ul className="topic-changes">{s.changes.map(c=><li key={c.id}><small className="muted">{c.category} · {c.title}</small><Value change={c}/></li>)}</ul>}
      </li>)}</ol>
      <div className="tf-actions">
