@@ -13,8 +13,10 @@ LINES=[{'id':'L001','text':'회의명: 테스트'},{'id':'L002','text':'라인 �
 TOPICS=[{'id':'Tspeed','title':'라인 속도','date':'2026-09-01','sample':''},{'id':'Tdelivery','title':'납기','date':'','sample':''}]
 
 
-def test_samples_and_scoring_reference_points():
-    projects=benchmark_agenda.load_samples()
+@pytest.mark.parametrize('folder',[benchmark_agenda.SAMPLES,benchmark_agenda.SAMPLES.with_name('agenda_samples_2')])
+def test_samples_and_scoring_reference_points(folder):
+    projects=benchmark_agenda.load_samples(folder)
+    assert len(projects)==3 and sum(len(p['meetings']) for p in projects)==10
     exact=benchmark_agenda.score(projects,benchmark_agenda.baseline_runs(projects,'oracle'))
     single=benchmark_agenda.score(projects,benchmark_agenda.baseline_runs(projects,'single'))
     assert exact['score']==1.0 and exact['topic_count_error']==0
@@ -111,3 +113,31 @@ def test_analysis_stores_subjects_and_links_them_across_meetings(client,monkeypa
     fn,*args=queue.jobs.pop();fn(*args)
     with w.connect() as db:b=w.read(db,'meeting',second)
     assert b['analysis_state']=='ready' and b['agendas']==[] and b['agenda_error']
+
+
+def test_project_topic_flow_links_meetings_and_changes():
+    from work.v3.topic_flow import project_flow
+    lines=lambda *t:[{'id':f'L{i+1:03}','text':x} for i,x in enumerate(t)]
+    m1={'id':'m1','title':'1차','date':'2026-09-01','revision':1,'agenda_revision':1,'lines':lines('속도 60 m/min','납기 2월'),
+        'agendas':[{'topic_id':'Tspeed','title':'속도','lines':['L001']},{'topic_id':'Tdel','title':'납기','lines':['L002']}]}
+    m2={'id':'m2','title':'2차','date':'2026-10-01','revision':2,'agenda_revision':1,'lines':lines('라인 속도 80으로 변경 요청','기타 안내'),
+        'agendas':[{'topic_id':'Tspeed','title':'라인 속도','lines':['L001']},{'topic_id':None,'title':'기타','lines':['L002']}]}
+    gone={'id':'m3','title':'삭제','date':'2026-11-01','deleted_at':'x','lines':lines('속도'),'agendas':[{'topic_id':'Tspeed','title':'속도','lines':['L001']}]}
+    es=[{'id':'e1','meeting_id':'m1','source_revision':1,'title':'라인 속도','category':'사양','before':'','after':'60 m/min','business_state':'확정','evidence':['L001']},
+        {'id':'e2','meeting_id':'m2','source_revision':2,'title':'라인 속도','category':'사양','before':'60 m/min','after':'80 m/min','business_state':'요청','evidence':['L001']},
+        {'id':'e3','meeting_id':'m2','source_revision':1,'title':'옛 기록','category':'사양','before':'','after':'x','business_state':'요청','evidence':['L001']}]
+    r=project_flow([m2,gone,m1],es)
+    assert [t['id'] for t in r['topics']]==['Tspeed','Tdel'] and r['meetings']==2
+    speed=r['topics'][0]
+    assert speed['title']=='라인 속도' and speed['first']['meeting_id']=='m1' and speed['last']['meeting_id']=='m2'
+    assert [s['lines'][0]['text'] for s in speed['steps']]==['속도 60 m/min','라인 속도 80으로 변경 요청']
+    assert [c['id'] for s in speed['steps'] for c in s['changes']]==['e1','e2']      # old revision record left out
+    assert speed['current']['after']=='80 m/min' and [o['after'] for o in speed['open']]==['80 m/min']
+    assert speed['steps'][1]['stale'] and not speed['steps'][0]['stale']
+    assert r['topics'][1]['current'] is None and r['topics'][1]['open']==[]
+
+
+def test_project_subject_hint_from_meeting_titles():
+    from work.v3.topic_flow import common_subject
+    assert common_subject(['동진 제박기 3호기 사양 협의','제박기 3호기 사양 확정 회의','제박기 3호기 2차 협의'])=='제박기 3호기'
+    assert common_subject(['한 건뿐인 회의'])=='' and common_subject(['가 회의','나 회의'])==''

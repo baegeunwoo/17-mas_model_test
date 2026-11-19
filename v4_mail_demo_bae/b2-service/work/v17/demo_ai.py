@@ -49,7 +49,7 @@ def normalize_notes(result, source_lines):
  return out
 
 
-def extract_notes(source_lines):
+def extract_notes(source_lines,raw=False):
  started=time.perf_counter()
  model_dir=Path(__file__).resolve().parents[3]/'b2-model'
  if str(model_dir) not in sys.path:sys.path.insert(0,str(model_dir))
@@ -63,7 +63,7 @@ notes라는 객체 배열 하나로 출력한다. 모든 객체는 kind, text, e
 중요 논의와 명시된 결정, 후속 조치, 추가 확인을 담되 같은 사실은 단 한 번만 적는다. 합의된 사양을 논의와 결정으로 중복하지 않는다. 관련 사양·납기 결정은 한 문장으로 묶을 수 있지만 각 수치와 조건의 근거를 보존한다.
 요청·검토·보류를 승인으로 바꾸지 않는다. 보류와 철회도 무엇을 보류·철회했는지 명확히 쓴다. 기존 기준을 변경 요청값으로 바꾸지 않는다.
 명시된 후속 조치와 추가 확인은 누락하지 않는다. 각 문장에 담당자 이름, 대상, 해야 할 일, 기한·조건이 명시되면 보존하고 없으면 추측하지 않는다. 기한 미정도 유지한다.
-text는 '진효창이 2026-11-12까지 배치도를 개정한다.'처럼 완결된 짧은 문장이다. 표의 축약문·제목·슬래시 목록을 그대로 복사하지 않는다. 숫자·날짜·단위·부정·조건을 바꾸지 않는다.
+text는 주어·대상·해야 할 일이 드러나는 완결된 짧은 문장이다. 이 지시문의 문장을 예시로 베끼지 말고 원문 내용만 쓴다. 표의 축약문·제목·슬래시 목록을 그대로 복사하지 않는다. 숫자·날짜·단위·부정·조건을 바꾸지 않는다. 날짜는 원문 표기 그대로 쓰고 원문에 없는 연도·일자를 붙이거나 '말'·'첫 주'를 특정 날짜로 바꾸지 않는다.
 evidence에는 해당 문장의 모든 내용을 뒷받침하는 원문 행 ID를 넣는다. 내용이 없으면 notes는 빈 배열이다.
 출력 형식: {"notes":[{"kind":"논의","text":"중요 논의 문장.","evidence":["원문 행 ID"]},{"kind":"결정","text":"합의 문장.","evidence":["원문 행 ID"]},{"kind":"후속 조치","text":"담당자의 후속 조치 문장.","evidence":["원문 행 ID"]}]}
 설명이나 코드블록 없이 JSON만 출력한다.'''
@@ -80,5 +80,6 @@ evidence에는 해당 문장의 모든 내용을 뒷받침하는 원문 행 ID�
  if not match:raise ValueError('AI 정리 응답을 완성하지 못했습니다. 다시 분석하거나 직접 정리해 주세요.')
  try:result=json.JSONDecoder().raw_decode(raw[match.start():])[0]
  except ValueError:raise ValueError('AI 정리 응답을 완성하지 못했습니다. 다시 분석하거나 직접 정리해 주세요.')
- normalized=normalize_notes(result,source_lines)
+ # raw: the caller only keeps kinds and line IDs and shows original lines, so it validates those itself.
+ normalized=result if raw else normalize_notes(result,source_lines)
  return normalized,{'seconds':round(time.perf_counter()-started,3),'cold_start':cold,'runtime_import_seconds':round(load_started-started,3),'model_load_seconds':round(loaded-load_started,3),'preparation_seconds':round(generation_started-loaded,3),'generation_seconds':round(generated-generation_started,3),'input_tokens':int(ids.shape[1]),'output_tokens':int(output.shape[1]-ids.shape[1]),'decoding':'prompt-lookup-5','model':'Qwen3-4B-Instruct-2507 · 4bit · 추가 학습 없음','scope':'meeting-notes'}

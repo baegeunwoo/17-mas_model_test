@@ -11,7 +11,7 @@ from work.v17.documents import ensure_document
 from work.v17.intake_review import active
 from work.v3.analysis_progress import stamp,epoch,estimate_runtime,progress_snapshot,recent_batch
 from work.v3.approval import latest_by_meeting,summary as approval_summary
-from work.v3 import agenda_ai
+from work.v3 import agenda_ai, topic_flow
 
 def norm(text):
     return re.sub(r'[\s·_().\-]', '', text or '').casefold()
@@ -356,6 +356,29 @@ def build_router(w):
             meetings=[{k:m.get(k) for k in ('id','project_id','title','date','author','analysis_state','analysis_phase','analysis_stale','error','version','revision','created_at','warnings','source_type','filename')}|{'points':note_points(m),'metrics':m.get('metrics',{}),'progress':progress.get(m['id']),'approval':approval_summary(approvals[m['id']],current,m['revision']) if m['id'] in approvals else None} for m in ms]
             archived=[{k:m.get(k) for k in ('id','title','project_id','deleted_at')} for m in w.all_records(c,'meeting') if m['project_id'] in ids and m.get('deleted_at') and actor['id'] in (m['author'],next(p['pm'] for p in ps if p['id']==m['project_id']))]
             return {'user':actor,'people':w.all_records(c,'person'),'projects':ps,'meetings':meetings,'archived':archived,'changes':es,'calendar':calendar_events(ms,es),'recent_batch':recent_batch([m for m in all_meetings if m['project_id'] in ids],actor['id']),'today':w.now()[:10],'can_create_project':w.can_create_project(c,actor),'version':'3.0-local'}
+    class ProjectName(BaseModel):
+        model_config=ConfigDict(extra='forbid')
+        name:str=Field(min_length=2,max_length=120)
+    @r.patch('/projects/{pid}')
+    def rename_project(pid,body:ProjectName,actor=Depends(w.user)):
+        # Only the PM renames; names stay unique across active and trashed projects.
+        name=' '.join(body.name.split())
+        if len(name)<2:raise HTTPException(422,'프로젝트 이름을 두 글자 이상 입력해 주세요.')
+        with w.connect() as c:
+            p=w.project(c,pid,actor,pm=True)
+            key=lambda x:re.sub(r'\s+','',x).casefold()
+            if any(x['id']!=pid and key(x['name'])==key(name) for x in w.all_records(c,'project',include_archived=True)):
+                raise HTTPException(409,'같은 이름의 프로젝트가 있습니다.')
+            p.update(name=name,updated_at=w.now(),updated_by=actor['id']);w.save(c,'project',p)
+            return p
+    @r.get('/projects/{pid}/topics')
+    def project_topics(pid,actor=Depends(w.user)):
+        # Subject flow across the project's meetings, from the stored subject grouping.
+        with w.connect() as c:
+            w.project(c,pid,actor)
+            ms=[m for m in w.all_records(c,'meeting') if m['project_id']==pid]
+            es=[e for e in w.all_records(c,'change_event') if e['project_id']==pid]
+        return topic_flow.project_flow(ms,es)
     @r.get('/search')
     def search(q:str=Query(default='',max_length=120),project_id:str='',actor=Depends(w.user)):
         terms=[norm(x) for x in q.split() if norm(x)]

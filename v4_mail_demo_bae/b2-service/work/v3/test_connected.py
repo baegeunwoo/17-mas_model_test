@@ -128,6 +128,31 @@ def test_notes_preserve_negation_and_conditions():
     assert notes['items'][0]['description']==rows[1]['text']
     with pytest.raises(ValueError):grounded_notes([['결정',['L999']]],rows)
 
+def test_one_bad_note_does_not_fail_the_meeting():
+    from work.v3.fast_ai import grounded_notes
+    rows=[{'id':'L001','text':'레이저 노칭으로 최종 결정'},{'id':'L002','text':'(보류) 예비품 견적은 사양 확정 후 제출'}]
+    dropped=[]
+    notes=grounded_notes([['보류',['L002']],['결정',['L999']],['엉뚱한 구분',['L001']],['결정',['L001']],'형식 오류'],rows,dropped)
+    assert [n['text'] for n in notes['decisions']]==[rows[1]['text'],rows[0]['text']]   # 보류 heading → 결정, original line kept
+    assert len(dropped)==3
+
+def test_fallback_shows_original_lines_not_invented_dates(monkeypatch):
+    from work.v3 import fast_ai
+    import work.v17.demo_ai as demo_ai, work.v17.changes as changes
+    rows=[{'id':'L001','text':'다음 점검은 12월 9일이다.'},{'id':'L002','text':'고객이 공장 배치를 보고 정하기로 했다.'}]
+    def joint(*args,**kwargs):raise ValueError('정리 항목 형식 오류')
+    raw={'notes':[{'kind':'결정','text':'다음 점검 일정은 2026-12-09이다.','evidence':['L001']},
+                  {'kind':'후속 조치','text':'진효창이 2026-11-12까지 배치도를 개정한다.','evidence':['L002']},
+                  {'kind':'보류','text':'근거 없는 항목','evidence':['L999']}]}
+    monkeypatch.setattr(fast_ai,'extract_joint',joint)
+    monkeypatch.setattr(demo_ai,'extract_notes',lambda lines,raw=False:(raw_result,{'seconds':0}))
+    monkeypatch.setattr(changes,'extract_changes',lambda *a:({'items':[]},0))
+    raw_result=raw
+    notes,found,metrics=fast_ai.extract(None,rows,[])
+    shown=[n['text'] for n in notes['decisions']]+[i['description'] for i in notes['items']]
+    assert shown==[rows[0]['text'],rows[1]['text']] and not any('2026' in s for s in shown)
+    assert metrics['pipeline']=='validated-fallback' and metrics['dropped_notes']==1
+
 def test_change_condition_uses_original_words():
     from work.v3.service import change_context
     quote='점검 커버: 측면 슬라이드로 변경을 요청했다. 커버 이동 공간과 프레임 간섭을 확인한다.'

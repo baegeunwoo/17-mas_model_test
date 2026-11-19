@@ -29,10 +29,11 @@ if ($Mode -eq 'AI') {
     Write-Host 'Installing the CUDA AI environment. Several GB may be downloaded.'
     & $packagePython -m pip install --disable-pip-version-check -r (Join-Path $packageRoot 'b2-model\requirements-ai.txt')
     if ($LASTEXITCODE -ne 0) { throw 'AI dependency installation failed.' }
-    Write-Host 'AI libraries installed. Run 04 to download the model files, then 05 to check.'
+    Write-Host 'AI libraries installed. Run 04 to download the default model (qwen3-4b) and the search model, then 05 to check.'
     exit 0
 }
 if ($Mode -eq 'Models') {
+    # Default analysis model (qwen3-4b) plus the small search model the app needs.
     & $packagePython (Join-Path $packageRoot 'b2-model\download_models.py')
     if ($LASTEXITCODE -ne 0) { throw 'Model download failed. Check Internet access and retry 04.' }
     exit 0
@@ -42,14 +43,16 @@ if ($Mode -eq 'Check') {
     exit $LASTEXITCODE
 }
 if ($Mode -eq 'CompareModels') {
-    # Large downloads; the script lists sizes and asks before starting.
-    & $packagePython (Join-Path $packageRoot 'b2-model\download_models.py') --compare
+    # Only the default model qwen3-4b; larger candidates are no longer downloaded here.
+    # Other model folders already in b2-model\models are left untouched.
+    & $packagePython (Join-Path $packageRoot 'b2-model\download_models.py') --model qwen3-4b
     if ($LASTEXITCODE -ne 0) { throw 'Comparison model download failed or was cancelled.' }
     exit 0
 }
 if ($Mode -eq 'CompareAgenda') {
     # Reads only the synthetic samples in work\v3\agenda_samples; never opens workspace data.
-    & $packagePython -m work.v3.benchmark_agenda --models all
+    # Default model only.
+    & $packagePython -m work.v3.benchmark_agenda --models qwen3-4b
     exit $LASTEXITCODE
 }
 # Each clone has its own local data. Never inherit another workspace's paths/network.

@@ -44,8 +44,12 @@ ready = all((ROOT / 'b2-model' / 'models' / 'multilingual-e5-small' / name).is_f
             for name in ('config.json', 'tokenizer_config.json', 'tokenizer.json', 'model.safetensors'))
 ai_ok = ai_ok and ready
 print('multilingual-e5-small:', 'OK' if ready else 'MISSING - run 04 for AI')
-print('Analysis models (B2_MODEL selects one; * = in use):')
+print('Analysis model (default qwen3-4b; * = in use):')
+if selected and selected != model_catalog.DEFAULT:
+    print(f'  NOTE: b2-service/.env selects B2_MODEL={selected}. Remove that line to use qwen3-4b.')
 for key, item in model_catalog.MODELS.items():
+    if key != model_catalog.DEFAULT and key != selected:
+        continue
     ready = model_catalog.is_downloaded(key)
     if key == selected:
         ai_ok = ai_ok and ready

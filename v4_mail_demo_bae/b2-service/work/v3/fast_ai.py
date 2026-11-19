@@ -6,21 +6,50 @@ from pathlib import Path
 VERSION='joint-notes-changes-2'
 _cache={}
 
-def grounded_notes(items, source_lines):
-    """Select and organize original sentences; do not paraphrase decision polarity."""
+KINDS=('논의','결정','후속 조치','추가 확인')
+# Models sometimes label a note with a change-record word. The note text is the original
+# line either way, so only the heading changes; anything unrecognised is left out.
+KIND_ALIASES={'보류':'결정','철회':'결정','확정':'결정','합의':'결정','승인':'결정',
+              '요청':'논의','요구사항':'논의','사양':'논의','납기':'논의','변경':'논의',
+              '업무':'후속 조치','할 일':'후속 조치','조치':'후속 조치',
+              '확인사항':'추가 확인','확인':'추가 확인','미결':'추가 확인','미정':'추가 확인'}
+
+def note_kind(value):
+    if not isinstance(value,str):return None
+    value=value.strip()
+    return value if value in KINDS else KIND_ALIASES.get(value)
+
+def grounded_notes(items, source_lines, dropped=None):
+    """Select and organize original sentences; do not paraphrase decision polarity.
+    An item with an unknown heading or line ID is left out (and reported in dropped)
+    instead of failing the meeting; nothing usable at all is still an error."""
     from work.v17.demo_ai import normalize_notes
     refs={x['id']:x['text'] for x in source_lines}
-    notes=[];seen=set()
+    notes=[];seen=set();skipped=[] if dropped is None else dropped
+    if not isinstance(items,list):raise ValueError('정리 항목 형식 오류')
     if len(items)>12:raise ValueError('정리 항목 한도를 넘었습니다.')
     for item in items:
-        if not isinstance(item,list) or len(item)!=2 or item[0] not in ('논의','결정','후속 조치','추가 확인'):raise ValueError('정리 항목 형식 오류')
-        kind,ids=item
-        if not isinstance(ids,list) or not ids or any(not isinstance(i,str) or i not in refs for i in ids):raise ValueError('정리 근거를 확인하지 못했습니다.')
+        kind=note_kind(item[0]) if isinstance(item,list) and len(item)==2 else None
+        ids=item[1] if kind else None
+        if not kind or not isinstance(ids,list) or not ids or any(not isinstance(i,str) or i not in refs for i in ids):
+            skipped.append(item);continue
         ids=list(dict.fromkeys(ids));key=tuple(ids)
         if key in seen:continue
         seen.add(key)
         notes.append({'kind':kind,'text':' '.join(refs[i] for i in ids),'evidence':ids})
+    if skipped and not notes:raise ValueError('정리 항목을 하나도 확인하지 못했습니다.')
     return normalize_notes({'notes':notes},source_lines)
+
+def note_pairs(result):
+    """[구분, 행 ID] pairs from the free-text notes response. Its wording is never shown."""
+    if not isinstance(result,dict):raise ValueError('AI 정리 응답 형식을 확인하지 못했습니다.')
+    if isinstance(result.get('notes'),list):
+        return [[x.get('kind'),x.get('evidence')] for x in result['notes'] if isinstance(x,dict)]
+    pairs=[]
+    for key,kind in (('summary','논의'),('decisions','결정'),('followups','후속 조치')):
+        for x in result.get(key) or []:
+            if isinstance(x,dict):pairs.append(['추가 확인' if x.get('kind')=='확인사항' else kind,x.get('evidence')])
+    return pairs
 
 def extract_joint(w,source_lines,topics,use_cache=True,on_phase=None):
     from work.v17.changes import relevant_topics,normalize_extraction,missed_state_lines
@@ -59,7 +88,8 @@ existing_topics와 같은 대상이면 해당 ID·대상명·분류를 유지한
     result=json.JSONDecoder().raw_decode(text[start:])[0]
     if not isinstance(result,dict) or not isinstance(result.get('notes'),list) or not isinstance(result.get('changes'),list):raise ValueError('통합 분석 형식을 확인하지 못했습니다.')
     if any(not isinstance(x,list) or len(x)!=7 for x in result['changes']):raise ValueError('통합 분석 항목을 확인하지 못했습니다.')
-    notes=grounded_notes(result['notes'],source_lines)
+    dropped=[]
+    notes=grounded_notes(result['notes'],source_lines,dropped)
     changes=normalize_extraction({'lines':source_lines},[dict(zip(('topic_id','title','category','before','after','business_state','evidence'),x)) for x in result['changes']],topics)
     refs={x['id']:x['text'] for x in source_lines}
     numbers=lambda s:set(re.findall(r'\d+(?:[.,]\d+)*',s))
@@ -73,7 +103,7 @@ existing_topics와 같은 대상이면 해당 ID·대상명·분류를 유지한
             if len(set(pairs))==1:change['before']=pairs[0]
         if numbers(change['before']+' '+change['after'])-numbers(' '.join(refs[r] for r in change['evidence'])):raise ValueError('변경 기록의 숫자 근거를 확인하지 못했습니다.')
     if missed_state_lines(source_lines,changes):raise ValueError('보류·철회 근거가 빠져 있습니다.')
-    metrics={'seconds':round(time.perf_counter()-started,3),'cold_start':cold,'model_load_seconds':round(loaded-started,3),'generation_seconds':round(finished-generation,3),'input_tokens':int(ids.shape[1]),'output_tokens':int(output.shape[1]-ids.shape[1]),'model':MODEL_LABEL,'pipeline':VERSION,'cache_hit':False}
+    metrics={'seconds':round(time.perf_counter()-started,3),'cold_start':cold,'model_load_seconds':round(loaded-started,3),'generation_seconds':round(finished-generation,3),'input_tokens':int(ids.shape[1]),'output_tokens':int(output.shape[1]-ids.shape[1]),'model':MODEL_LABEL,'pipeline':VERSION,'cache_hit':False,'dropped_notes':len(dropped)}
     if use_cache:
         if len(_cache)>=32:_cache.pop(next(iter(_cache)))
         _cache[key]=deepcopy((notes,{'items':changes},metrics))
@@ -87,11 +117,11 @@ def extract(w,source_lines,topics,on_phase=None):
         from work.v17.demo_ai import extract_notes
         from work.v17.changes import extract_changes
         if on_phase:on_phase('retrying')
-        notes,metrics=extract_notes(source_lines)
-        selected=[]
-        for key,kind in [('summary','논의'),('decisions','결정'),('items','후속 조치')]:
-            selected.extend([('추가 확인' if point.get('kind')=='확인사항' else kind),point['evidence']] for point in notes[key])
-        notes=grounded_notes(selected,source_lines)
+        # Only the headings and line IDs of this response are kept; the original lines are shown.
+        result,metrics=extract_notes(source_lines,raw=True)
+        dropped=[]
+        notes=grounded_notes(note_pairs(result),source_lines,dropped)
+        metrics['dropped_notes']=len(dropped)
         changes,seconds=extract_changes(w,{'lines':source_lines},topics)
         metrics.update(pipeline='validated-fallback',fallback_reason=str(exc),changes_seconds=seconds,seconds=round(time.perf_counter()-started,3))
         return notes,changes,metrics

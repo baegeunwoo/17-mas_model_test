@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "node work/v3/build.cjs",
-    "test": "node work/v3/test_display.mjs && node work/v3/test_meeting_list.mjs && node work/v3/test_progress_time.mjs",
+    "test": "node work/v3/test_display.mjs && node work/v3/test_meeting_list.mjs && node work/v3/test_progress_time.mjs && node work/v3/test_agenda_view.mjs && node work/v3/test_source_document.mjs",
     "build:legacy": "node work/v17/build.cjs"
   },
   "dependencies": {
